@@ -1,4 +1,6 @@
 streamlit
 google-generativeai
-pypdf
 pandas
+pypdf
+gspread
+oauth2client
