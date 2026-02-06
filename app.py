@@ -99,6 +99,21 @@ def save_to_google_sheets(user_id, chat_history, lang):
         st.error(f"❌ 上傳發生錯誤: {str(e)}") 
         return False
 
+# --- 自動重試機制函式 (新增) ---
+def send_message_with_retry(chat_session, text, retries=3, delay=2):
+    """
+    發送訊息給 Gemini，若失敗則自動重試。
+    """
+    for attempt in range(retries):
+        try:
+            response = chat_session.send_message(text)
+            return response.text
+        except Exception as e:
+            if attempt < retries - 1:
+                time.sleep(delay)  # 等待後重試
+            else:
+                raise e  # 超過重試次數則拋出錯誤
+
 # 初始化 Session State
 if "history" not in st.session_state: st.session_state.history = []
 if "loaded_text" not in st.session_state: st.session_state.loaded_text = ""
@@ -204,6 +219,7 @@ if st.session_state.loaded_text and api_key and valid_model_name:
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
         }
     )
 
@@ -247,9 +263,14 @@ if st.session_state.loaded_text and api_key and valid_model_name:
 
     if user_in := st.chat_input("詢問概念..."):
         st.session_state.history.append({"role": "user", "content": user_in})
-        try:
-            resp = st.session_state.chat_session.send_message(user_in)
-            st.session_state.history.append({"role": "assistant", "content": resp.text})
-            st.rerun()
-        except Exception as e:
-            st.error(f"❌ 發生錯誤: {e}")
+        with st.chat_message("user"):
+            st.write(user_in)
+            
+        with st.spinner("👩‍🏫 家教思考中..."):
+            try:
+                # 使用改良後的重試機制發送訊息
+                resp_text = send_message_with_retry(st.session_state.chat_session, user_in)
+                st.session_state.history.append({"role": "assistant", "content": resp_text})
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ 發生錯誤 (已重試 3 次): {e}")
