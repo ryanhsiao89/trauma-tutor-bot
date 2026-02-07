@@ -273,7 +273,7 @@ if st.session_state.loaded_text and api_key and valid_model_name:
         Start the conversation by introducing yourself as their TIC Tutor and asking what concept they would like to learn about today (e.g., 4F responses, window of tolerance, etc.).
         """
         
-        welcome_msg = f"你好 {st.session_state.user_nickname} 老師！我是您的創傷知情 AI 家教。\n\n我的工作是協助您弄懂那些複雜的理論，並確認您能運用在教學上。今天您想了解哪個概念？（例如：什麼是 4F 反應？什麼是耐受窗？）"
+        welcome_msg = f"你好 {st.session_state.user_nickname} 老師！我是您的創傷知情 AI 家教。\n\n我的工作是協助您弄懂那些複雜的理論，並確認您能運用在教學上。今天您想了解哪個概念？（例如：創傷定義為何？什麼是TIC的核心原則？）"
         
         st.session_state.chat_session = model.start_chat(history=[
             {"role": "user", "parts": [sys_prompt]},
