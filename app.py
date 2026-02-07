@@ -99,7 +99,7 @@ def save_to_google_sheets(user_id, chat_history, lang):
         st.error(f"❌ 上傳發生錯誤: {str(e)}") 
         return False
 
-# --- 自動重試機制函式 (新增) ---
+# --- 自動重試機制函式 ---
 def send_message_with_retry(chat_session, text, retries=3, delay=2):
     """
     發送訊息給 Gemini，若失敗則自動重試。
@@ -113,6 +113,15 @@ def send_message_with_retry(chat_session, text, retries=3, delay=2):
                 time.sleep(delay)  # 等待後重試
             else:
                 raise e  # 超過重試次數則拋出錯誤
+
+# --- 格式化下載內容函式 (新增) ---
+def convert_history_to_txt(history):
+    text_content = ""
+    for msg in history:
+        role_name = "AI 家教" if msg["role"] == "assistant" else "學員"
+        content = msg["content"]
+        text_content += f"【{role_name}】：\n{content}\n\n{'='*20}\n\n"
+    return text_content
 
 # 初始化 Session State
 if "history" not in st.session_state: st.session_state.history = []
@@ -138,6 +147,19 @@ if not st.session_state.user_nickname:
 
 # --- 3. 側邊欄設定 ---
 st.sidebar.title(f"👤 學員: {st.session_state.user_nickname}")
+
+# [新增功能 1] 下載對話紀錄
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📥 下載紀錄")
+if st.session_state.history:
+    chat_txt = convert_history_to_txt(st.session_state.history)
+    st.sidebar.download_button(
+        label="下載對話紀錄 (.txt)",
+        data=chat_txt,
+        file_name=f"Tutor_History_{st.session_state.user_nickname}.txt",
+        mime="text/plain"
+    )
+
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📤 結束學習")
 
@@ -224,7 +246,7 @@ if st.session_state.loaded_text and api_key and valid_model_name:
     )
 
     if len(st.session_state.history) == 0:
-        # 核心：Mollick 家教模式 Prompt (Direct Instruction + Check for Understanding)
+        # [改良部分 2] 核心 Prompt：加入針對真實個案提問的拒絕機制
         sys_prompt = f"""
         Role: You are a "Trauma-Informed Care Tutor" (Mollick's Tutor Persona).
         Target Audience: A teacher learning about Trauma-Informed Care (TIC).
@@ -240,15 +262,18 @@ if st.session_state.loaded_text and api_key and valid_model_name:
            - Example Check: "How might you see this appearing in your classroom?"
            - Example Check: "Could you try explaining the 'Flight' response back to me in your own words?"
         
-        ### RULES:
-        - Do NOT just be a passive search engine. Be an *active teacher*.
-        - Do NOT just ask questions like a Coach. You must *teach* first, then check.
-        - If the user's answer is wrong, correct them gently and re-explain.
+        ### STRICT BOUNDARIES & RULES:
+        1. **Scope Restriction:** You are an AI Tutor for *learning concepts*, NOT a supervisor for clinical cases.
+        2. **Refusal Logic:** If the user asks for advice on specific, real-world student cases, personal counseling issues, or practical intervention strategies for specific students (e.g., "I have a student who does X, what should I do?"), you MUST politely decline.
+        3. **Refusal Script:** "我是協助您學習創傷知情概念的 AI 家教，無法針對真實個案提供諮商建議或處遇策略。請我們回到教材內容，探討相關的理論概念好嗎？" (Translate this sentiment to the user's language if needed).
+        4. **Redirect:** After declining, explicitly ask them to pose a question about a concept from the reading material instead.
+        5. **Teaching Mode:** Do NOT just be a passive search engine. Be an *active teacher*.
+        6. **Correction:** If the user's answer is wrong, correct them gently and re-explain.
         
         Start the conversation by introducing yourself as their TIC Tutor and asking what concept they would like to learn about today (e.g., 4F responses, window of tolerance, etc.).
         """
         
-        welcome_msg = f"你好 {st.session_state.user_nickname} 老師！我是您的創傷知情 AI 家教。\n\n我的工作是協助您弄懂那些複雜的理論，並確認您能運用在教學上。今天您想了解哪個概念？（例如：什麼是 4F 反應？什麼是容納之窗？）"
+        welcome_msg = f"你好 {st.session_state.user_nickname} 老師！我是您的創傷知情 AI 家教。\n\n我的工作是協助您弄懂那些複雜的理論，並確認您能運用在教學上。今天您想了解哪個概念？（例如：什麼是 4F 反應？什麼是耐受窗？）"
         
         st.session_state.chat_session = model.start_chat(history=[
             {"role": "user", "parts": [sys_prompt]},
