@@ -97,16 +97,20 @@ def auto_save_to_google_sheets(user_id, chat_history, lang):
         print(f"背景上傳發生錯誤: {str(e)}") 
         return False
 
-# --- API 輪替與防呆發送機制 (Fallback Mechanism) ---
+# --- API 輪替與防呆發送機制 (角色強化版) ---
 def send_message_safely(text):
     """
-    發送訊息，若失敗則自動切換至下一把 API Key 重試
+    發送訊息，若失敗則自動切換至下一把 API Key 重試。
+    加入 system_instruction 防護機制，確保切換 Key 時角色絕不混亂。
     """
     time.sleep(1) # [防呆] 強制減速 1 秒
     
-    # 取得目前的對話歷史
+    # 我們的設計中，history 的第一筆 [0] 永遠是系統設定 (sys_prompt)
+    system_prompt = st.session_state.history[0]["content"]
+    
+    # 取得除了第一筆 (sys_prompt) 之外的純對話歷史
     gemini_history = []
-    for msg in st.session_state.history:
+    for msg in st.session_state.history[1:]:
         g_role = "model" if msg["role"] == "assistant" else "user"
         gemini_history.append({"role": g_role, "parts": [msg["content"]]})
         
@@ -119,10 +123,13 @@ def send_message_safely(text):
         active_key = api_keys[current_key_index]
         
         try:
-            # 使用當前的 Key 初始化模型
+            # 使用當前的 Key 初始化連線
             genai.configure(api_key=active_key)
+            
+            # 將 System Prompt 綁定為 system_instruction
             model = genai.GenerativeModel(
                 model_name=st.session_state.valid_model_name,
+                system_instruction=system_prompt,
                 safety_settings={
                     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -131,7 +138,7 @@ def send_message_safely(text):
                 }
             )
             
-            # 使用目前的歷史紀錄建立 session
+            # 使用純淨的歷史紀錄建立 session
             chat_session = model.start_chat(history=gemini_history)
             response = chat_session.send_message(text)
             
@@ -172,7 +179,7 @@ if "chat_session_initialized" not in st.session_state: st.session_state.chat_ses
 if "raw_api_key_input" not in st.session_state: st.session_state.raw_api_key_input = ""
 if "api_keys_list" not in st.session_state: st.session_state.api_keys_list = []
 if "current_key_index" not in st.session_state: st.session_state.current_key_index = 0
-if "valid_model_name" not in st.session_state: st.session_state.valid_model_name = "gemini-1.5-pro-latest"
+if "valid_model_name" not in st.session_state: st.session_state.valid_model_name = "gemini-2.5-flash" # 預設改為 2.5 flash
 
 # --- 2. 登入區 (編號制) ---
 if not st.session_state.user_nickname:
@@ -238,7 +245,7 @@ if st.session_state.api_keys_list:
         genai.configure(api_key=st.session_state.api_keys_list[0])
         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         if available_models:
-            st.session_state.valid_model_name = st.sidebar.selectbox("🤖 AI 模型", available_models)
+            st.session_state.valid_model_name = st.sidebar.selectbox("🤖 AI 模型", available_models, index=available_models.index("models/gemini-2.5-flash") if "models/gemini-2.5-flash" in available_models else 0)
     except: 
         st.sidebar.error("❌ 第一把 API Key 無效，請檢查。")
 
@@ -285,9 +292,9 @@ if st.session_state.loaded_text and st.session_state.api_keys_list and st.sessio
         1. **Assess & Explain:** When the user asks a question, explain the concept clearly and directly based on the Knowledge Base.
         2. **Provide Examples:** Always give a concrete, classroom-based example to illustrate the concept.
         3. **Check for Understanding (CRITICAL):** After explaining, *ALWAYS* ask the user a question to verify they understood.
-           - Example Check: "Does this make sense to you?"
-           - Example Check: "How might you see this appearing in your classroom?"
-           - Example Check: "Could you try explaining the 'Flight' response back to me in your own words?"
+            - Example Check: "Does this make sense to you?"
+            - Example Check: "How might you see this appearing in your classroom?"
+            - Example Check: "Could you try explaining the 'Flight' response back to me in your own words?"
         
         ### STRICT BOUNDARIES & RULES:
         1. **Scope Restriction:** You are an AI Tutor for *learning concepts*, NOT a supervisor for clinical cases.
